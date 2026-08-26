@@ -20,6 +20,7 @@
     --soil:#4A3A29;
     --soil-line:#6B5438;
     --green:#33C97C;
+    --red:#E8362B;
     --text:#E9EEF5;
     --text-dim:#8695A8;
     --text-dimmer:#5C6A7C;
@@ -245,18 +246,10 @@
     margin-bottom:6px;
   }
   .lane-pick.set{color:var(--green);}
-  .lane-target{
-    font-family:'JetBrains Mono', monospace;
-    font-size:9px;
-    color:var(--text-dimmer);
-    letter-spacing:.06em;
-    margin-bottom:6px;
-  }
-  .lane-target b{color:var(--orange);}
 
   .rig{
     position:relative;
-    height:190px;
+    height:276px;
     margin:0 auto 8px;
     width:66px;
   }
@@ -294,9 +287,53 @@
     animation:flash .18s ease-out;
   }
   .strike-flash.refusal{background:var(--steel-dark);}
+  .strike-flash.breakthrough{background:var(--green);}
+  .strike-flash.breakthrough.on{
+    animation:flashBig .4s ease-out;
+  }
+  .strike-flash.bedrock{background:var(--red);}
+  .strike-flash.bedrock.on{
+    animation:flashBedrock .3s ease-out;
+  }
   @keyframes flash{
     0%{opacity:.9; transform:scaleX(1.4);}
     100%{opacity:0; transform:scaleX(1);}
+  }
+  @keyframes flashBig{
+    0%{opacity:1; transform:scaleX(2.2) scaleY(1.8);}
+    100%{opacity:0; transform:scaleX(1);}
+  }
+  @keyframes flashBedrock{
+    0%{opacity:1; transform:scaleX(1.8) scaleY(1.6);}
+    60%{opacity:.9; transform:scaleX(1.5) scaleY(1.3);}
+    100%{opacity:0; transform:scaleX(1);}
+  }
+
+  .bedrock-text{
+    position:absolute;
+    left:50%;
+    top:40px;
+    transform:translate(-50%, 0);
+    font-family:'JetBrains Mono', monospace;
+    font-weight:700;
+    font-size:9px;
+    letter-spacing:.04em;
+    color:var(--red);
+    text-shadow:0 0 6px rgba(232,54,43,.6);
+    white-space:nowrap;
+    opacity:0;
+    pointer-events:none;
+    z-index:2;
+  }
+  .bedrock-text.on{
+    animation:bedrockPop 1.1s ease-out;
+  }
+  @keyframes bedrockPop{
+    0%{opacity:0; transform:translate(-50%, 6px) scale(.85);}
+    15%{opacity:1; transform:translate(-50%, 0) scale(1.05);}
+    30%{transform:translate(-50%, 0) scale(1);}
+    80%{opacity:1;}
+    100%{opacity:0; transform:translate(-50%, -8px) scale(1);}
   }
 
   .grade-line{
@@ -467,7 +504,7 @@
     </div>
     <div class="spec-tag">
       START REVEAL <b>16.0 FT</b><br>
-      TARGET REVEAL <b>4.0–5.5 FT</b> <span style="color:var(--text-dimmer)">(random/pile)</span><br>
+      TARGET REVEAL <b>4.0 FT</b> <span style="color:var(--text-dimmer)">(everyone)</span><br>
       HAMMER RATE <b>RANDOM</b><br>
       EST. DURATION <b>~4 HRS</b>
     </div>
@@ -509,12 +546,12 @@
   <div id="resultsArea">
     <div class="banner" id="banner">&#9670; DRAFT ORDER SET — TRACKER ASSEMBLED &#9670;</div>
     <div class="tracker-wrap">
-      <div class="tracker-label">Row Assembly <b>·</b> Piles Tied Together With Torque Tube</div>
+      <div class="tracker-label">Row Assembly</div>
       <div id="trackerSvgHost"></div>
     </div>
     <table class="cutsheet">
       <thead>
-        <tr><th>Pick</th><th>Racer</th><th>Final Reveal</th><th>Strikes</th></tr>
+        <tr><th>Pick</th><th>Racer</th><th>Time</th><th>Final Reveal</th><th>Strikes</th></tr>
       </thead>
       <tbody id="cutsheetBody"></tbody>
     </table>
@@ -553,17 +590,29 @@
   const START_REVEAL = 16.0;
   const TARGET_REVEAL = 4.0;
 
-  // pixel geometry inside .rig (height 190) — baseline (flat) grade reference
-  const PILE_TOP_MIN = 26;
-  const GRADE_Y = 118;
+  // pixel geometry inside .rig (height 276) — flat grade, same for every pile
+  const PILE_TOP_MIN = 30;
+  const GRADE_Y = 190;
   const PX_PER_FT = (GRADE_Y - PILE_TOP_MIN) / START_REVEAL;
-  const EMBED_PX = 58;
+  const EMBED_PX = 70;
 
   // hit pacing — tuned so a full field averages roughly 4 hours to all finish
-  const FIRST_DELAY_MIN = 1000,    FIRST_DELAY_MAX = 8000;
-  const DELAY_MIN = 3000,          DELAY_MAX = 16200;
+  const FIRST_DELAY_MIN = 1340,    FIRST_DELAY_MAX = 10700;
+  const DELAY_MIN = 4000,          DELAY_MAX = 21700;
   const STRIKE_SUCCESS_PROB = 0.8;
   const DRIVE = 0.01;
+
+  // rare, bigger swings so standings actually shuffle instead of a photo finish —
+  // most hits stay small/frequent, but occasionally soil gives way (or doesn't)
+  const BREAKTHROUGH_PROB = 0.05;                          // odds a successful hit is a "breakthrough"
+  const BREAKTHROUGH_MIN = 0.04, BREAKTHROUGH_MAX = 0.18;   // extra ft on top of the base 0.01
+  const HARDLAYER_PROB = 0.05;                              // odds a refusal turns into a stall
+  const HARDLAYER_MULT_MIN = 3,  HARDLAYER_MULT_MAX = 9;    // multiplies the wait before the next attempt
+
+  // rare "hit bedrock" episodes — several stuck attempts in a row before finally breaking through
+  const BEDROCK_PROB = 0.001;                               // odds of hitting bedrock on any given attempt
+  const BEDROCK_DUR_MIN = 4,     BEDROCK_DUR_MAX = 9;       // how many attempts it takes to get through
+  const BEDROCK_DELAY_MULT = 2.5;                           // extra wait per attempt while stuck
 
   const START_BUFFER_MS = 8000; // gives everyone a moment to load in before the hammers start
 
@@ -654,39 +703,56 @@
   };
 
   // ---------- deterministic race simulation ----------
-  function gradeElevFt(gAmp, gWaves, gPhase, t){
-    return gAmp * Math.sin(t * Math.PI * gWaves + gPhase);
-  }
-
   function simulateRace(seed, rosterNames){
     const rng = mulberry32(seed);
-    const gAmp = 1.2 + rng() * 1.0;
-    const gWaves = 1.0 + rng() * 1.2;
-    const gPhase = rng() * Math.PI * 2;
 
     const n = rosterNames.length;
     const sim = rosterNames.map((name, i) => {
       const t = n > 1 ? i / (n - 1) : 0.5;
-      const gradeFt = gradeElevFt(gAmp, gWaves, gPhase, t);
-      const graderY = GRADE_Y - gradeFt * PX_PER_FT;
 
       let reveal = START_REVEAL;
       let strikes = 0;
       let cum = FIRST_DELAY_MIN + rng() * (FIRST_DELAY_MAX - FIRST_DELAY_MIN);
-      const events = [{ tMs: 0, reveal: START_REVEAL, strikes: 0, refusal:false }];
+      let inBedrock = false, bedrockLeft = 0;
+      const events = [{ tMs: 0, reveal: START_REVEAL, strikes: 0, refusal:false, breakthrough:false, bedrock:false }];
       while(true){
-        const success = rng() < STRIKE_SUCCESS_PROB;
-        if(success){
-          strikes++;
-          reveal = Math.max(TARGET_REVEAL, reveal - DRIVE);
+        let delayMult = 1;
+        let breakthrough = false;
+        let bedrock = false;
+        let success = false;
+
+        if(inBedrock){
+          bedrock = true;
+          delayMult = BEDROCK_DELAY_MULT;
+          bedrockLeft--;
+          if(bedrockLeft <= 0) inBedrock = false;
+        } else if(rng() < BEDROCK_PROB){
+          inBedrock = true;
+          bedrockLeft = BEDROCK_DUR_MIN + Math.floor(rng() * (BEDROCK_DUR_MAX - BEDROCK_DUR_MIN + 1));
+          bedrock = true;
+          delayMult = BEDROCK_DELAY_MULT;
+        } else {
+          success = rng() < STRIKE_SUCCESS_PROB;
+          if(success){
+            strikes++;
+            let drive = DRIVE;
+            if(rng() < BREAKTHROUGH_PROB){
+              breakthrough = true;
+              drive += BREAKTHROUGH_MIN + rng() * (BREAKTHROUGH_MAX - BREAKTHROUGH_MIN);
+            }
+            reveal = Math.max(TARGET_REVEAL, reveal - drive);
+          } else if(rng() < HARDLAYER_PROB){
+            delayMult = HARDLAYER_MULT_MIN + rng() * (HARDLAYER_MULT_MAX - HARDLAYER_MULT_MIN);
+          }
         }
-        events.push({ tMs: cum, reveal, strikes, refusal: !success });
+
+        events.push({ tMs: cum, reveal, strikes, refusal: !success, breakthrough, bedrock });
         if(reveal <= TARGET_REVEAL + 0.0001) break;
-        cum += DELAY_MIN + rng() * (DELAY_MAX - DELAY_MIN);
+        cum += (DELAY_MIN + rng() * (DELAY_MAX - DELAY_MIN)) * delayMult;
       }
       return {
-        id: i, name, t, gradeFt, graderY,
-        pileBottom: graderY + EMBED_PX,
+        id: i, name, t, graderY: GRADE_Y,
+        pileBottom: GRADE_Y + EMBED_PX,
         events, finishMs: cum,
         lastIdx: -1, pick: null
       };
@@ -725,23 +791,22 @@
     trackGrid.innerHTML = '';
     racers.forEach(r => {
       const targetY = r.graderY - TARGET_REVEAL * PX_PER_FT;
-      const egLabel = (r.gradeFt >= 0 ? '+' : '') + r.gradeFt.toFixed(1) + "'";
       const lane = document.createElement('div');
       lane.className = 'lane';
       lane.id = `lane-${r.id}`;
       lane.innerHTML = `
         <div class="lane-name">${escapeHtml(r.name)}</div>
-        <div class="lane-target">EG <b>${egLabel}</b></div>
         <div class="lane-pick" id="pick-${r.id}"></div>
         <div class="rig">
           <div class="hammer" id="hammer-${r.id}" style="top:0px;"></div>
           <div class="strike-flash" id="flash-${r.id}"></div>
+          <div class="bedrock-text" id="bedrock-${r.id}">HIT BEDROCK!</div>
           <div class="target-line" style="top:${targetY}px;"></div>
           <div class="soil" style="top:${r.graderY + 2}px;"></div>
           <div class="grade-line" style="top:${r.graderY}px;"></div>
           <div class="pile" id="pile-${r.id}"></div>
         </div>
-        <div class="readout" id="readout-${r.id}"><small>REVEAL</small>--.- FT</div>
+        <div class="readout" id="readout-${r.id}"><small>REVEAL</small>--.-- FT</div>
       `;
       trackGrid.appendChild(lane);
     });
@@ -799,7 +864,7 @@
       const ev = r.events[idx];
       const finished = elapsed >= r.finishMs;
       if(idx !== r.lastIdx && idx > 0){
-        strikeFlash(r.id, ev.refusal);
+        strikeFlash(r.id, ev.refusal, ev.breakthrough, ev.bedrock);
       }
       r.lastIdx = idx;
       updateLaneVisual(r, ev.reveal, ev.strikes, finished);
@@ -846,7 +911,7 @@
     pileEl.style.top = top + 'px';
     pileEl.style.height = (r.pileBottom - top) + 'px';
     hammerEl.style.top = (top - 28) + 'px';
-    readoutEl.innerHTML = `<small>REVEAL</small>${reveal.toFixed(1)} FT`;
+    readoutEl.innerHTML = `<small>REVEAL</small>${reveal.toFixed(2)} FT`;
     r.reveal = reveal;
     r.strikes = strikes;
     if(finished){
@@ -855,15 +920,30 @@
     }
   }
 
-  function strikeFlash(id, refusal){
+  function strikeFlash(id, refusal, breakthrough, bedrock){
     const f = document.getElementById(`flash-${id}`);
     if(!f) return;
     const top = document.getElementById(`hammer-${id}`).style.top;
     f.style.top = (parseFloat(top) + 24) + 'px';
-    f.classList.remove('on','refusal');
+    f.classList.remove('on','refusal','breakthrough','bedrock');
     void f.offsetWidth;
-    if(refusal) f.classList.add('refusal');
+    if(bedrock){
+      f.classList.add('bedrock');
+    } else if(refusal){
+      f.classList.add('refusal');
+    } else if(breakthrough){
+      f.classList.add('breakthrough');
+    }
     f.classList.add('on');
+
+    if(bedrock){
+      const b = document.getElementById(`bedrock-${id}`);
+      if(b){
+        b.classList.remove('on');
+        void b.offsetWidth;
+        b.classList.add('on');
+      }
+    }
   }
 
   // ---------- results ----------
@@ -882,7 +962,8 @@
       tr.innerHTML = `
         <td><span class="pick-num">${r.pick}</span></td>
         <td>${escapeHtml(r.name)}</td>
-        <td>${TARGET_REVEAL.toFixed(1)} FT</td>
+        <td>${formatClock(Math.floor(r.finishMs / 1000))}</td>
+        <td>${TARGET_REVEAL.toFixed(2)} FT</td>
         <td>${r.strikes}</td>
       `;
       cutsheetBody.appendChild(tr);
@@ -897,59 +978,28 @@
     const MARGIN = 46;
     const usable = W - MARGIN * 2;
     const BASE_Y = 150;
-    const GRADE_PX_PER_FT = 16;
     const REVEAL_PX_PER_FT = 12;
 
-    // recover the same grade curve used for this race by resampling from racer t/gradeFt pairs
-    // (t -> gradeFt is already baked into each racer, so we can spline through those directly)
     const ptsByT = [...racers].sort((a,b) => a.t - b.t);
 
-    function gradeAtT(t){
-      // linear interpolation between the racers' own computed grade points —
-      // exact at each pile, smooth between them
-      if(ptsByT.length === 1) return ptsByT[0].gradeFt;
-      if(t <= ptsByT[0].t) return ptsByT[0].gradeFt;
-      if(t >= ptsByT[ptsByT.length-1].t) return ptsByT[ptsByT.length-1].gradeFt;
-      for(let i=0;i<ptsByT.length-1;i++){
-        const a = ptsByT[i], b = ptsByT[i+1];
-        if(t >= a.t && t <= b.t){
-          const f = (t - a.t) / (b.t - a.t || 1);
-          // smoothstep for a gentler terrain-following curve between piles
-          const s = f*f*(3-2*f);
-          return a.gradeFt + (b.gradeFt - a.gradeFt) * s;
-        }
-      }
-      return 0;
-    }
-
     const xFor = t => MARGIN + t * usable;
-    const gradeY = t => BASE_Y - gradeAtT(t) * GRADE_PX_PER_FT;
+    const gy = BASE_Y;
+    const topY = gy - TARGET_REVEAL * REVEAL_PX_PER_FT;
 
-    const STEPS = 72;
-    let groundPts = [];
-    let tubePts = [];
-    for(let i = 0; i <= STEPS; i++){
-      const t = i / STEPS;
-      const x = xFor(t);
-      const gy = gradeY(t);
-      groundPts.push([x, gy]);
-      tubePts.push([x, gy - TARGET_REVEAL * REVEAL_PX_PER_FT]);
-    }
-    const groundPath = 'M ' + groundPts.map(p => p[0].toFixed(1)+' '+p[1].toFixed(1)).join(' L ');
-    const tubePath = 'M ' + tubePts.map(p => p[0].toFixed(1)+' '+p[1].toFixed(1)).join(' L ');
+    const groundPath = `M ${MARGIN} ${gy} L ${W-MARGIN} ${gy}`;
+    const tubePath = `M ${MARGIN} ${topY} L ${W-MARGIN} ${topY}`;
     const groundFill = groundPath + ` L ${W-MARGIN} ${H} L ${MARGIN} ${H} Z`;
 
     let pilesSvg = '';
     ptsByT.forEach(r => {
       const x = xFor(r.t);
-      const gy = gradeY(r.t);
-      const topY = gy - TARGET_REVEAL * REVEAL_PX_PER_FT;
+      const timeLabel = formatClock(Math.floor(r.finishMs / 1000));
       pilesSvg += `
         <rect x="${(x-4).toFixed(1)}" y="${topY.toFixed(1)}" width="8" height="${(gy - topY + 34).toFixed(1)}" rx="1.5" fill="url(#pileGrad)"/>
         <circle cx="${x.toFixed(1)}" cy="${topY.toFixed(1)}" r="4.5" fill="#F2B705" stroke="#0D141C" stroke-width="1"/>
         <text x="${x.toFixed(1)}" y="${(topY-11).toFixed(1)}" text-anchor="middle" font-family="JetBrains Mono, monospace" font-size="9" fill="#F2B705">PICK ${r.pick}</text>
         <text x="${x.toFixed(1)}" y="${(gy+48).toFixed(1)}" text-anchor="middle" font-family="Oswald, sans-serif" font-size="11" font-weight="600" fill="#E9EEF5">${escapeHtml(r.name).toUpperCase()}</text>
-        <text x="${x.toFixed(1)}" y="${(gy+60).toFixed(1)}" text-anchor="middle" font-family="JetBrains Mono, monospace" font-size="8" fill="#5C6A7C">EG ${(r.gradeFt>=0?'+':'')}${r.gradeFt.toFixed(1)}'</text>
+        <text x="${x.toFixed(1)}" y="${(gy+60).toFixed(1)}" text-anchor="middle" font-family="JetBrains Mono, monospace" font-size="8" fill="#5C6A7C">${timeLabel}</text>
       `;
     });
 
